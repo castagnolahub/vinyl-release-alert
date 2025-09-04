@@ -1,1 +1,58 @@
+name: VinylReleases → ntfy
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # run every 5 minutes
+  workflow_dispatch:        # lets you run it manually
+
+permissions:
+  contents: read
+
+env:
+  FEED_URL: https://www.reddit.com/r/VinylReleases/new/.rss
+  NTFY_TOPIC: vinyl_alerts
+  WINDOW_MINUTES: "6"        # look back slightly more than 5m
+
+jobs:
+  send_alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install feedparser requests
+
+      - name: Poll RSS and post to ntfy
+        run: |
+          python3 - << 'PY'
+          import os, datetime, time
+          import feedparser, requests
+
+          FEED = os.environ["FEED_URL"]
+          TOPIC = os.environ["NTFY_TOPIC"]
+          WINDOW_MIN = int(os.environ.get("WINDOW_MINUTES","6"))
+
+          now = datetime.datetime.utcnow()
+          window_start = now - datetime.timedelta(minutes=WINDOW_MIN)
+
+          d = feedparser.parse(FEED, request_headers={"User-Agent":"vinylwatcher/1.0"})
+          for e in d.entries:
+              ts = getattr(e, "published_parsed", None) or getattr(e, "updated_parsed", None)
+              pub = datetime.datetime.utcfromtimestamp(time.mktime(ts)) if ts else now
+              if pub < window_start:
+                  continue
+
+              title = getattr(e, "title", "New post")
+              link  = getattr(e, "link", "")
+              idem  = getattr(e, "id", link or str(pub.timestamp()))
+
+              body = f"{title}\n{link}".strip()
+              headers = {
+                  "Title": title,
+                  "Click": link,
+                  "Idempotency-Key": idem
+              }
+              r = requests.post(f"https://ntfy.sh/{TOPIC}", data=body.encode("utf-8"), headers=headers, timeout=10)
+              r.raise_for_status()
+          PY
 
