@@ -2,8 +2,10 @@ name: VinylReleases → ntfy
 
 on:
   schedule:
-    - cron: "*/11 13-23 * * *"   # every 11 minutes, 6am–6pm PT (approx, accounts for UTC offset)
-  workflow_dispatch:             # lets you run it manually
+    # Run every 12 minutes between 6 AM and 6 PM Pacific (13–01 UTC)
+    - cron: "*/12 13-23 * * *"
+    - cron: "*/12 0-1 * * *"
+  workflow_dispatch:    # lets you run it manually
 
 permissions:
   contents: read
@@ -11,7 +13,7 @@ permissions:
 env:
   FEED_URL: https://www.reddit.com/r/VinylReleases/new/.rss
   NTFY_TOPIC: vinyl_alerts
-  WINDOW_MINUTES: "12"           # look back slightly more than 11m
+  WINDOW_MINUTES: "13"   # look back slightly more than 12m
 
 jobs:
   send_alerts:
@@ -24,19 +26,21 @@ jobs:
 
       - name: Poll RSS and post to ntfy
         run: |
-          python3 << 'EOF'
-          import os, requests, feedparser, datetime
-          FEED_URL = os.environ["FEED_URL"]
-          TOPIC = os.environ["NTFY_TOPIC"]
-          WINDOW_MINUTES = int(os.environ["WINDOW_MINUTES"])
-          
-          feed = feedparser.parse(FEED_URL)
-          cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=WINDOW_MINUTES)
+          import feedparser, requests, os
+          from datetime import datetime, timedelta, timezone
+
+          feed_url = os.environ["FEED_URL"]
+          topic = os.environ["NTFY_TOPIC"]
+          window_minutes = int(os.environ["WINDOW_MINUTES"])
+
+          cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+
+          feed = feedparser.parse(feed_url)
 
           for entry in feed.entries:
               if hasattr(entry, "published_parsed"):
-                  published = datetime.datetime(*entry.published_parsed[:6])
+                  published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
                   if published > cutoff:
                       msg = f"{entry.title}\n{entry.link}"
-                      requests.post(f"https://ntfy.sh/{TOPIC}", data=msg.encode("utf-8"))
-          EOF
+                      requests.post(f"https://ntfy.sh/{topic}", data=msg.encode("utf-8"))
+        shell: python3 {0}
