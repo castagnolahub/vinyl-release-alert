@@ -2,7 +2,7 @@ name: VinylReleases → ntfy
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # run every 5 minutes
+    - cron: "*/10 6-17 * * *"
   workflow_dispatch:        # lets you run it manually
 
 permissions:
