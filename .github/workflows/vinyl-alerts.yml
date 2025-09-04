@@ -2,8 +2,8 @@ name: VinylReleases → ntfy
 
 on:
   schedule:
-    - cron: "*/10 6-17 * * *"
-  workflow_dispatch:        # lets you run it manually
+    - cron: "*/11 13-23 * * *"   # every 11 minutes, 6am–6pm PT (approx, accounts for UTC offset)
+  workflow_dispatch:             # lets you run it manually
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 env:
   FEED_URL: https://www.reddit.com/r/VinylReleases/new/.rss
   NTFY_TOPIC: vinyl_alerts
-  WINDOW_MINUTES: "6"        # look back slightly more than 5m
+  WINDOW_MINUTES: "12"           # look back slightly more than 11m
 
 jobs:
   send_alerts:
@@ -24,35 +24,19 @@ jobs:
 
       - name: Poll RSS and post to ntfy
         run: |
-          python3 - << 'PY'
-          import os, datetime, time
-          import feedparser, requests
-
-          FEED = os.environ["FEED_URL"]
+          python3 << 'EOF'
+          import os, requests, feedparser, datetime
+          FEED_URL = os.environ["FEED_URL"]
           TOPIC = os.environ["NTFY_TOPIC"]
-          WINDOW_MIN = int(os.environ.get("WINDOW_MINUTES","6"))
+          WINDOW_MINUTES = int(os.environ["WINDOW_MINUTES"])
+          
+          feed = feedparser.parse(FEED_URL)
+          cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=WINDOW_MINUTES)
 
-          now = datetime.datetime.utcnow()
-          window_start = now - datetime.timedelta(minutes=WINDOW_MIN)
-
-          d = feedparser.parse(FEED, request_headers={"User-Agent":"vinylwatcher/1.0"})
-          for e in d.entries:
-              ts = getattr(e, "published_parsed", None) or getattr(e, "updated_parsed", None)
-              pub = datetime.datetime.utcfromtimestamp(time.mktime(ts)) if ts else now
-              if pub < window_start:
-                  continue
-
-              title = getattr(e, "title", "New post")
-              link  = getattr(e, "link", "")
-              idem  = getattr(e, "id", link or str(pub.timestamp()))
-
-              body = f"{title}\n{link}".strip()
-              headers = {
-                  "Title": title,
-                  "Click": link,
-                  "Idempotency-Key": idem
-              }
-              r = requests.post(f"https://ntfy.sh/{TOPIC}", data=body.encode("utf-8"), headers=headers, timeout=10)
-              r.raise_for_status()
-          PY
-
+          for entry in feed.entries:
+              if hasattr(entry, "published_parsed"):
+                  published = datetime.datetime(*entry.published_parsed[:6])
+                  if published > cutoff:
+                      msg = f"{entry.title}\n{entry.link}"
+                      requests.post(f"https://ntfy.sh/{TOPIC}", data=msg.encode("utf-8"))
+          EOF
